@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gym Tracker</title>
+  <link rel="icon" href="data:,">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Arial', sans-serif; }
+    body { background-color: #f4f6f8; color: #333; display: flex; flex-direction: column; min-height: 100vh; }
+    #app { flex: 1; padding: 15px; margin-bottom: 60px; overflow-y: auto; }
+    .bottom-nav { position: fixed; bottom: 0; left: 0; width: 100%; display: flex; background: #fff; border-top: 1px solid #ccc; }
+    .bottom-nav button { flex: 1; padding: 12px; font-size: 22px; border: none; background: none; }
+
+    h2 { text-align: center; margin: 10px 0; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+
+    button {
+      color: white; border: none; padding: 10px; border-radius: 8px;
+      cursor: pointer; width: 100%; margin: 5px 0; font-size: 16px;
+    }
+    button:hover { opacity: 0.9; }
+
+    /* Colores personalizados */
+    .btn-blue { background-color: #007bff; }
+    .btn-green { background-color: #28a745; }
+    .btn-red { background-color: #dc3545; }
+    .btn-gray { background-color: #6c757d; }
+    .btn-small { width: auto; padding: 6px 10px; font-size: 14px; margin-left: 5px; }
+
+    input { width: 100%; padding: 5px; border-radius: 6px; border: 1px solid #ccc; }
+    .backup-buttons { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+
+    /* Cuadros informativos */
+    .stats-container {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 10px 0 15px 0;
+    }
+
+    .stat-box {
+      flex: 1;
+      background: #ffffff;
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      text-align: center;
+      padding: 10px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+    }
+
+    .stat-box h4 {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+
+    .stat-box p {
+      font-size: 18px;
+      font-weight: bold;
+      color: #333;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <nav class="bottom-nav">
+    <button id="homeBtn">🏠</button>
+    <button id="exercisesBtn">📋</button>
+  </nav>
+
+  <script>
+    const app = document.getElementById('app');
+    const homeBtn = document.getElementById('homeBtn');
+    const exercisesBtn = document.getElementById('exercisesBtn');
+
+    let exerciseList = JSON.parse(localStorage.getItem('exerciseList') || '["Jalón al pecho","Sentadillas","Leg Curl Hechado","Leg Curl Sentado","Press Banca"]');
+    let editMode = null;
+    let actionMode = null;
+
+    homeBtn.addEventListener('click', showHome);
+    exercisesBtn.addEventListener('click', showExercises);
+
+    // ========================= HOME =========================
+    function showHome() {
+      const allData = JSON.parse(localStorage.getItem('gymData') || '{}');
+      const dates = Object.values(allData)
+        .flat()
+        .map(s => s.date)
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .sort((a, b) => new Date(b) - new Date(a));
+
+      const lastTwo = dates.slice(0, 2);
+      let html = `<h2>🏠 Últimos entrenamientos</h2>`;
+
+      if (lastTwo.length === 0) {
+        html += `<p>Sin registro</p>`;
+      } else {
+        lastTwo.forEach(date => {
+          let rows = '';
+          exerciseList.forEach(ex => {
+            const sessions = (allData[ex] || []).filter(s => s.date === date);
+            if (sessions.length > 0) {
+              const seriesStr = sessions[0].series.map(
+                s => `${s.series}: ${s.weight}x${s.reps} (${s.note || "-"})`
+              ).join("<br>");
+              rows += `<tr><td>${ex}</td><td>${seriesStr}</td></tr>`;
+            }
+          });
+          if (rows) {
+            html += `<h3>${date}</h3><table><tr><th>Ejercicio</th><th>Series</th></tr>${rows}</table>`;
+          }
+        });
+      }
+
+      html += `
+      <div class="backup-buttons">
+        <button class="btn-blue" onclick="exportBackup()">💾 Guardar respaldo</button>
+        <input type="file" id="importFile" accept=".json" style="display:none">
+        <button class="btn-blue" onclick="document.getElementById('importFile').click()">📂 Cargar respaldo</button>
+      </div>`;
+      app.innerHTML = html;
+      document.getElementById('importFile').addEventListener('change', importBackup);
+    }
+
+    // ========================= LISTA DE EJERCICIOS =========================
+    function showExercises() {
+      let html = `<h2>📋 Ejercicios</h2>`;
+      exerciseList.forEach(ex => {
+        html += `<button class="btn-blue" onclick="showExercise('${ex}')">${ex}</button>`;
+      });
+      html += `
+        <button class="btn-green" onclick="addExercise()">Añadir ejercicio</button>
+        <button class="btn-red" onclick="deleteExerciseMode()">Eliminar ejercicio</button>
+      `;
+      app.innerHTML = html;
+    }
+
+    function addExercise() {
+      const name = prompt("Nombre del nuevo ejercicio:");
+      if (!name) return;
+      if (exerciseList.includes(name)) return alert("Ya existe este ejercicio.");
+      exerciseList.push(name);
+      localStorage.setItem('exerciseList', JSON.stringify(exerciseList));
+      showExercises();
+    }
+
+    function deleteExerciseMode() {
+      let html = `<h2>Eliminar ejercicios</h2>`;
+      exerciseList.forEach(ex => {
+        html += `<p>${ex} <button class="btn-red btn-small" onclick="confirmDeleteExercise('${ex}')">Eliminar</button></p>`;
+      });
+      html += `<button class="btn-gray" onclick="showExercises()">Volver</button>`;
+      app.innerHTML = html;
+    }
+
+    function confirmDeleteExercise(name) {
+      if (confirm(`¿Seguro que quieres eliminar "${name}"?`)) {
+        exerciseList = exerciseList.filter(e => e !== name);
+        localStorage.setItem('exerciseList', JSON.stringify(exerciseList));
+        showExercises();
+      }
+    }
+
+    // ========================= EJERCICIO INDIVIDUAL =========================
+    function showExercise(name) {
+      const today = new Date().toISOString().split('T')[0];
+      const data = JSON.parse(localStorage.getItem('gymData') || '{}');
+      const history = data[name] || [];
+
+      // Calcular máximo y frecuencia
+      let maxWeight = 0;
+      let maxReps = 0;
+      history.forEach(session => {
+        session.series.forEach(s => {
+          if (parseFloat(s.weight) > maxWeight) {
+            maxWeight = parseFloat(s.weight);
+            maxReps = parseInt(s.reps);
+          }
+        });
+      });
+
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const sessionsThisWeek = history.filter(s => new Date(s.date) >= oneWeekAgo).length;
+
+      let html = `
+        <button class="btn-gray" onclick="showExercises()">Volver</button>
+        <h2>${name}</h2>
+
+        <div class="stats-container">
+          <div class="stat-box">
+            <h4>Máximo registrado</h4>
+            <p>${maxWeight > 0 ? maxWeight + " kg x " + maxReps + " reps" : "–"}</p>
+          </div>
+          <div class="stat-box">
+            <h4>Frecuencia semanal</h4>
+            <p>${sessionsThisWeek} vez${sessionsThisWeek !== 1 ? 'es' : ''}</p>
+          </div>
+        </div>
+
+        <label>Fecha: <input type="date" id="dateInput" value="${today}"></label>
+        <table><tr><th>Serie</th><th>Peso</th><th>Reps</th><th>Nota</th></tr>`;
+
+      for (let i = 1; i <= 4; i++) {
+        html += `
+        <tr>
+          <td>${i}</td>
+          <td><input type="number" id="w${i}" placeholder="kg"></td>
+          <td><input type="number" id="r${i}" placeholder="reps"></td>
+          <td><input type="text" id="n${i}" placeholder="nota"></td>
+        </tr>`;
+      }
+
+      html += `</table>
+        <button class="btn-green" onclick="saveSession('${name}')">LISTO</button>
+        <button class="btn-blue" onclick="enableEditMode('${name}')">Editar historial</button>
+        <button class="btn-red" onclick="enableDeleteMode('${name}')">Eliminar historial</button>
+        <h3>Historial</h3>`;
+
+      if (history.length === 0) {
+        html += `<p>Sin registros previos.</p>`;
+      } else {
+        history.sort((a, b) => new Date(b.date) - new Date(a.date));
+        history.forEach((session, idx) => {
+          const seriesStr = session.series.map(
+            s => `${s.series}: ${s.weight}x${s.reps} (${s.note || "-"})`
+          ).join("<br>");
+          html += `<div><h4>${session.date}</h4><p>${seriesStr}</p>`;
+          if (actionMode) {
+            html += `<button class="btn-small ${actionMode === 'edit' ? 'btn-blue' : 'btn-red'}" onclick="${actionMode === 'edit' ? `loadEdit('${name}',${idx})` : `confirmDelete('${name}',${idx})`}">Seleccionar</button>`;
+          }
+          html += `</div>`;
+        });
+      }
+
+      app.innerHTML = html;
+    }
+
+    // ========================= GUARDAR SESIÓN =========================
+    function saveSession(name) {
+      const date = document.getElementById('dateInput').value;
+      const data = JSON.parse(localStorage.getItem('gymData') || '{}');
+      if (!data[name]) data[name] = [];
+
+      const series = [];
+      for (let i = 1; i <= 4; i++) {
+        const w = document.getElementById(`w${i}`).value;
+        const r = document.getElementById(`r${i}`).value;
+        const n = document.getElementById(`n${i}`).value;
+        if (w && r) series.push({ series: i, weight: w, reps: r, note: n });
+      }
+      if (series.length === 0) return alert("No ingresaste datos.");
+
+      if (editMode && editMode.name === name) {
+        data[name][editMode.index] = { date, series };
+        editMode = null;
+      } else {
+        data[name].push({ date, series });
+      }
+
+      localStorage.setItem('gymData', JSON.stringify(data));
+      alert("Sesión guardada ✅");
+      showExercise(name);
+    }
+
+    // ========================= MODOS HISTORIAL =========================
+    function enableEditMode(name) { actionMode = "edit"; showExercise(name); }
+    function enableDeleteMode(name) { actionMode = "delete"; showExercise(name); }
+
+    function confirmDelete(name, index) {
+      if (confirm("¿Seguro que quieres borrar este registro?")) {
+        const data = JSON.parse(localStorage.getItem('gymData') || '{}');
+        data[name].splice(index, 1);
+        localStorage.setItem('gymData', JSON.stringify(data));
+        showExercise(name);
+      }
+    }
+
+    function loadEdit(name, index) {
+      const data = JSON.parse(localStorage.getItem('gymData') || '{}');
+      const record = data[name][index];
+      editMode = { name, index };
+      showExercise(name);
+      document.getElementById('dateInput').value = record.date;
+      record.series.forEach(s => {
+        document.getElementById(`w${s.series}`).value = s.weight;
+        document.getElementById(`r${s.series}`).value = s.reps;
+        document.getElementById(`n${s.series}`).value = s.note || "";
+      });
+      actionMode = null;
+    }
+
+    // ========================= BACKUP =========================
+    function exportBackup() {
+      const data = localStorage.getItem('gymData') || '{}';
+      const blob = new Blob([data], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "gym_backup.json"; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importBackup(e) {
+      const file = e.target.files[0]; if (!file) return;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        try {
+          const importedData = JSON.parse(ev.target.result);
+          localStorage.setItem('gymData', JSON.stringify(importedData));
+          alert("Respaldo cargado correctamente ✅");
+          showHome();
+        } catch { alert("Archivo inválido ❌"); }
+      };
+      reader.readAsText(file);
+    }
+
+    showHome();
+  </script>
+</body>
+</html>
